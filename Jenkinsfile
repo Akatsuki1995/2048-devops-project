@@ -33,7 +33,6 @@ pipeline {
 
         stage('Push to ECR') {
             steps {
-                // Uses the "aws-standard" username/password credential we created
                 withCredentials([usernamePassword(credentialsId: 'aws-standard', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
                     sh "docker push ${IMAGE_TAG}"
@@ -43,14 +42,21 @@ pipeline {
 
         stage('Deploy to EC2') {
             steps {
-                // FIXED: Using "withCredentials" instead of "sshagent"
-                // This injects the key as a temporary file variable 'SSH_KEY_FILE'
-                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
+                // FIXED: We load BOTH the SSH Key AND the AWS Credentials here
+                withCredentials([
+                    sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER'),
+                    usernamePassword(credentialsId: 'aws-standard', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')
+                ]) {
                     sh """
-                        # We use -i to specify the key file Jenkins created for us
+                        # We pass the AWS keys into the SSH session using 'export'
                         ssh -o StrictHostKeyChecking=no -i ${SSH_KEY_FILE} ubuntu@${APP_SERVER_IP} '
-                            # Commands running INSIDE the server:
-                            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                            export AWS_DEFAULT_REGION=${AWS_REGION}
+                            
+                            # Now this command has the credentials it needs to succeed
+                            aws ecr get-login-password | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                            
                             docker pull ${IMAGE_TAG}
                             docker stop 2048-game || true
                             docker rm 2048-game || true
