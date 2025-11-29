@@ -33,7 +33,7 @@ pipeline {
 
         stage('Push to ECR') {
             steps {
-                // FIXED: Using standard usernamePassword binding instead of aws()
+                // Uses the "aws-standard" username/password credential we created
                 withCredentials([usernamePassword(credentialsId: 'aws-standard', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
                     sh "docker push ${IMAGE_TAG}"
@@ -43,11 +43,13 @@ pipeline {
 
         stage('Deploy to EC2') {
             steps {
-                sshagent(['ec2-ssh-key']) {
+                // FIXED: Using "withCredentials" instead of "sshagent"
+                // This injects the key as a temporary file variable 'SSH_KEY_FILE'
+                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
                     sh """
-                        ssh -o StrictHostKeyChecking=no ubuntu@${APP_SERVER_IP} '
-                            # We also use the local AWS config on the server here, or pass env vars if needed.
-                            # Since we ran "aws configure" on the server earlier, this will work.
+                        # We use -i to specify the key file Jenkins created for us
+                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY_FILE} ubuntu@${APP_SERVER_IP} '
+                            # Commands running INSIDE the server:
                             aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
                             docker pull ${IMAGE_TAG}
                             docker stop 2048-game || true
