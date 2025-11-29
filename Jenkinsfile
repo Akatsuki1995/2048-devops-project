@@ -6,7 +6,7 @@ pipeline {
         ECR_REGISTRY = '503418758452.dkr.ecr.us-east-1.amazonaws.com' 
         ECR_REPO = '2048-game-repo'
         IMAGE_TAG = "${ECR_REGISTRY}/${ECR_REPO}:latest"
-        APP_SERVER_IP = '54.146.251.163'
+        APP_SERVER_IP = '54.243.25.135'
     }
 
     stages {
