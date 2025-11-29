@@ -1,0 +1,67 @@
+---
+- name: Provision AWS Infrastructure for 2048 Game
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    region: "us-east-1"  # <--- UPDATED HERE
+    key_name: "devops-key" # Must exist in us-east-1
+    instance_type: "t2.micro"
+    
+  tasks:
+    - name: Create ECR Repository
+      community.aws.ecr_repository:
+        name: "2048-game-repo"
+        region: "{{ region }}"
+        state: present
+      register: ecr_repo
+
+    - name: Create Security Group
+      amazon.aws.ec2_security_group:
+        name: "2048-sg"
+        description: "Allow SSH and Port 3000"
+        region: "{{ region }}"
+        rules:
+          - proto: tcp
+            ports:
+              - 22
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            ports:
+              - 3000
+            cidr_ip: 0.0.0.0/0
+      register: security_group
+
+    - name: Find latest Ubuntu 22.04 AMI (Dynamic Search)
+      amazon.aws.ec2_ami_info:
+        region: "{{ region }}"
+        owners: ["099720109477"] # Canonical
+        filters:
+          name: "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
+          root-device-type: "ebs"
+          virtualization-type: "hvm"
+      register: ami_search
+
+    - name: Launch EC2 Instance
+      amazon.aws.ec2_instance:
+        name: "2048-App-Server"
+        key_name: "{{ key_name }}"
+        instance_type: "{{ instance_type }}"
+        # This automatically picks the latest image found above
+        image_id: "{{ ami_search.images | sort(attribute='creation_date') | last | json_query('image_id') }}"
+        region: "{{ region }}"
+        security_group: "2048-sg"
+        network:
+          assign_public_ip: true
+        wait: yes
+        tags:
+          Environment: Production
+      register: ec2
+
+    - name: FINAL OUTPUT - SAVE THESE
+      debug:
+        msg: 
+          - "--------------------------------------------------"
+          - "ECR REGISTRY URI: {{ ecr_repo.repository.repositoryUri }}"
+          - "EC2 PUBLIC IP:    {{ ec2.instances[0].public_ip_address }}"
+          - "--------------------------------------------------"
